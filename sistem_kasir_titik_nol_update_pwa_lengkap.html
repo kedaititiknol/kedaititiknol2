@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Kedai Titik Nol - POS System & Management</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Tailwind Custom Configuration -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          },
+          colors: {
+            krem: { 50: '#FAF7F2', 100: '#F0EBE1', 200: '#E1D7C6', 300: '#D3C2A8', 400: '#C5AD8B' },
+            coksu: { 50: '#F5F0EB', 100: '#EAE1D5', 200: '#D5C2AB', 300: '#C0A381', 400: '#AD855B', 500: '#96683F', 600: '#805532', 700: '#664227', 800: '#4C311C', 900: '#332013' }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <!-- React 18 & Babel Standalone -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- PWA Manifest & iOS Support -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#FAF7F2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Titik Nol POS">
+  <link rel="apple-touch-icon" href="https://placehold.co/192x192/96683F/FAF7F2/png?text=TN">
+
+  <!-- Libraries for Export (Excel & PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #FAF7F2; -webkit-tap-highlight-color: transparent; }
+    @media print {
+      body * { visibility: hidden; }
+      #print-area, #print-area * { visibility: visible; }
+      #print-area { position: absolute; left: 0; top: 0; width: 100%; max-width: 80mm; margin: 0; padding: 10px; border: none; box-shadow: none; }
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #E1D7C6; border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #D3C2A8; }
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin-slow { animation: spin-slow 2s linear infinite; }
+  </style>
+</head>
+<body class="bg-krem-50 min-h-screen text-coksu-900 overflow-hidden">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // Default Initial Data
+    const initialCategories = [
+      { id: 1, name: 'Kopi' },
+      { id: 2, name: 'Non-Kopi' },
+      { id: 3, name: 'Makanan' },
+      { id: 4, name: 'Snack' }
+    ];
+
+    const initialProducts = [
+      { id: 1, name: 'Kopi Susu Titik Nol', categoryId: 1, stock: 50, costPrice: 8000, sellPrice: 15000 },
+      { id: 2, name: 'Americano Hot/Ice', categoryId: 1, stock: 35, costPrice: 5000, sellPrice: 12000 },
+      { id: 3, name: 'Matcha Latte Premium', categoryId: 2, stock: 25, costPrice: 10000, sellPrice: 18000 },
+      { id: 4, name: 'Nasi Goreng Titik Nol', categoryId: 3, stock: 15, costPrice: 12000, sellPrice: 25000 },
+      { id: 5, name: 'French Fries Crispy', categoryId: 4, stock: 40, costPrice: 6000, sellPrice: 12000 },
+    ];
+
+    const initialExpenses = [
+      { id: 1, date: new Date().toISOString(), description: 'Beli Biji Kopi Arabika 1kg', amount: 150000, category: 'Bahan Baku' },
+      { id: 2, date: new Date().toISOString(), description: 'Pembayaran Tagihan Listrik & Air', amount: 250000, category: 'Operasional' },
+    ];
+
+    const initialTransactions = [
+      { 
+        id: 'TRX-1001', 
+        date: new Date(Date.now() - 3600000 * 5).toISOString(), 
+        items: [{ productId: 1, name: 'Kopi Susu Titik Nol', qty: 2, price: 15000, subtotal: 30000 }], 
+        total: 30000, 
+        payment: 50000, 
+        change: 20000, 
+        cashier: 'Super Admin', 
+        paymentMethod: 'Tunai' 
+      }
+    ];
+
+    const defaultStoreInfo = {
+      name: 'Kedai Titik Nol',
+      address: 'Jl. Kenangan No. 99, Kota Bandung',
+      phone: '0812-3456-7890',
+      footerNote: 'Terima kasih atas kunjungan Anda!'
+    };
+
+    const DEFAULT_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYkN9EQCDkR6NgkfY3ZAp8K0Xh9WJqb4Y5EOR4xH1ZImEdDLRJ5gvO-OcZOGFX2-SGtQ/exec";
+
+    const formatRupiah = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
+    const formatDate = (isoString) => new Date(isoString).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    const Icon = ({ name, size = 20, className = "" }) => {
+      const paths = {
+        dashboard: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z" />,
+        cart: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />,
+        package: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />,
+        fileText: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />,
+        settings: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />,
+        logout: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />,
+        plus: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />,
+        edit: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />,
+        trash2: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />,
+        printer: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />,
+        search: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />,
+        dollarSign: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />,
+        trendingUp: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />,
+        trendingDown: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6" />,
+        checkCircle: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />,
+        refreshCw: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.2 8H17" />,
+        menu: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />,
+        close: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />,
+        download: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />,
+        wallet: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />,
+        tag: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />,
+        store: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+      };
+      return <svg className={`inline-block ${className}`} width={size} height={size} fill="none" viewBox="0 0 24 24" stroke="currentColor">{paths[name] || <circle cx="12" cy="12" r="10" strokeWidth="2" />}</svg>;
+    };
+
+    const InteractiveSvgChart = ({ data }) => {
+      const maxVal = Math.max(...data.map(d => d.amount), 1000);
+      const width = 500, height = 220, padding = 40;
+      const chartWidth = width - padding * 2, chartHeight = height - padding * 2;
+      return (
+        <div className="w-full h-full flex flex-col justify-between">
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
+            {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+              const y = padding + chartHeight * (1 - ratio);
+              const val = Math.round(maxVal * ratio);
+              return (
+                <g key={idx}>
+                  <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#E1D7C6" strokeWidth="1" strokeDasharray="4 4" />
+                  <text x={padding - 8} y={y + 4} textAnchor="end" className="text-[10px] font-semibold fill-coksu-400">{val >= 1000000 ? `${(val/1000000).toFixed(1)}M` : val >= 1000 ? `${Math.round(val/1000)}k` : val}</text>
+                </g>
+              );
+            })}
+            {data.map((item, idx) => {
+              const barWidth = chartWidth / data.length - 24, barHeight = (item.amount / maxVal) * chartHeight;
+              const x = padding + idx * (chartWidth / data.length) + 12, y = padding + chartHeight - barHeight;
+              const colors = { 'Omzet': ['#C5AD8B', '#AD855B'], 'HPP': ['#60a5fa', '#2563eb'], 'Pengeluaran': ['#f87171', '#dc2626'], 'Laba Bersih': ['#34d399', '#059669'] };
+              const activeColor = colors[item.name] || ['#C0A381', '#96683F'];
+              return (
+                <g key={idx} className="group cursor-pointer">
+                  <defs><linearGradient id={`grad-${idx}`} x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stopColor={activeColor[0]} /><stop offset="100%" stopColor={activeColor[1]} /></linearGradient></defs>
+                  <rect x={x} y={y} width={barWidth} height={barHeight} rx="8" fill={`url(#grad-${idx})`} className="transition-all duration-300 hover:opacity-80" />
+                  <text x={x + barWidth / 2} y={y - 8} textAnchor="middle" className="text-[10px] font-bold fill-coksu-800 opacity-0 group-hover:opacity-100 transition-opacity duration-200">{formatRupiah(item.amount)}</text>
+                  <text x={x + barWidth / 2} y={height - padding + 16} textAnchor="middle" className="text-[11px] font-bold fill-coksu-700">{item.name}</text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      );
+    };
+
+    const SidebarItem = ({ icon, label, active, onClick }) => (
+      <button onClick={onClick} className={`flex items-center space-x-3 w-full p-3.5 rounded-2xl transition-all duration-200 border border-transparent ${active ? 'bg-coksu-500 text-white font-bold shadow-md transform scale-[1.02]' : 'text-coksu-300 hover:bg-coksu-800 hover:text-white font-semibold'}`}>
+        {icon} <span className="text-sm tracking-wide">{label}</span>
+      </button>
+    );
+
+    const StatCard = ({ title, value, icon, bg }) => (
+      <div className="bg-white rounded-3xl border border-krem-200 p-5 flex items-center shadow-sm hover:shadow-md transition-shadow">
+        <div className={`w-12 h-12 rounded-2xl ${bg} flex items-center justify-center mr-4 shadow-sm shrink-0`}>{icon}</div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-coksu-400 font-extrabold uppercase tracking-wider truncate">{title}</p>
+          <h3 className="text-xl font-black text-coksu-800 mt-1 truncate">{value}</h3>
+        </div>
+      </div>
+    );
+
+    const AdminDashboard = ({ transactions, products, expenses }) => {
+      const totalOmzet = transactions.reduce((sum, trx) => sum + trx.total, 0);
+      const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+      let totalHPP = 0;
+      transactions.forEach(trx => trx.items.forEach(item => { const product = products.find(p => p.id === item.productId); if (product) totalHPP += (product.costPrice || 0) * item.qty; }));
+      const netProfit = totalOmzet - totalHPP - totalExpenses;
+      const lowStockProducts = products.filter(p => p.stock < 10);
+      const recentTransactions = [...transactions].sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+
+      const chartData = [
+        { name: 'Omzet', amount: totalOmzet },
+        { name: 'HPP', amount: totalHPP },
+        { name: 'Pengeluaran', amount: totalExpenses },
+        { name: 'Laba Bersih', amount: netProfit > 0 ? netProfit : 0 }
+      ];
+
+      return (
+        <div className="space-y-6 pb-24 lg:pb-0 animate-fade-in-up">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold text-coksu-900 tracking-tight">Dashboard Ringkasan</h1>
+              <p className="text-xs text-coksu-500 font-medium">Performa keuangan dan statistik kedai Anda</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <StatCard title="Total Omzet" value={formatRupiah(totalOmzet)} icon={<Icon name="trendingUp" className="text-emerald-500" size={20} />} bg="bg-emerald-50" />
+            <StatCard title="Total HPP" value={formatRupiah(totalHPP)} icon={<Icon name="package" className="text-blue-500" size={20} />} bg="bg-blue-50" />
+            <StatCard title="Pengeluaran" value={formatRupiah(totalExpenses)} icon={<Icon name="trendingDown" className="text-red-500" size={20} />} bg="bg-red-50" />
+            <StatCard title="Laba Bersih" value={formatRupiah(netProfit)} icon={<Icon name="dollarSign" className="text-amber-500" size={20} />} bg="bg-amber-50" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+              <h3 className="text-lg font-bold text-coksu-800 mb-4 flex items-center"><Icon name="trendingUp" className="mr-2 text-coksu-500" /> Grafik Keuangan</h3>
+              <div className="h-64">
+                <InteractiveSvgChart data={chartData} />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200 flex flex-col justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-coksu-800 mb-4 flex items-center justify-between">
+                  <span>Stok Menipis</span>
+                  <span className="text-xs bg-red-100 text-red-600 px-2.5 py-1 rounded-full font-extrabold">{lowStockProducts.length} Produk</span>
+                </h3>
+                <div className="space-y-3 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                  {lowStockProducts.length === 0 ? (
+                    <p className="text-xs text-coksu-400 italic py-4 text-center">Semua stok produk aman.</p>
+                  ) : (
+                    lowStockProducts.map(p => (
+                      <div key={p.id} className="flex justify-between items-center p-3 bg-red-50/70 rounded-2xl border border-red-100">
+                        <div>
+                          <p className="font-bold text-xs text-coksu-900">{p.name}</p>
+                          <p className="text-[10px] text-red-500 font-semibold mt-0.5">Sisa Stok: <span className="font-black">{p.stock}</span></p>
+                        </div>
+                        <span className="text-[10px] bg-red-200 text-red-800 px-2 py-0.5 rounded-lg font-bold">Pesan Lagi</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+            <h3 className="text-lg font-bold text-coksu-800 mb-4 flex items-center"><Icon name="fileText" className="mr-2 text-coksu-500" /> Transaksi Terbaru</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-krem-200 text-coksu-400 font-bold uppercase tracking-wider">
+                    <th className="pb-3">ID Nota</th>
+                    <th className="pb-3">Waktu</th>
+                    <th className="pb-3">Kasir</th>
+                    <th className="pb-3">Metode</th>
+                    <th className="pb-3 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-krem-100">
+                  {recentTransactions.map(trx => (
+                    <tr key={trx.id} className="hover:bg-krem-50 transition-colors">
+                      <td className="py-3 font-bold text-coksu-900">{trx.id}</td>
+                      <td className="py-3 text-coksu-600">{formatDate(trx.date)}</td>
+                      <td className="py-3 text-coksu-700 font-medium">{trx.cashier}</td>
+                      <td className="py-3"><span className="px-2 py-1 rounded-lg bg-krem-100 font-bold text-coksu-700 text-[10px]">{trx.paymentMethod}</span></td>
+                      <td className="py-3 text-right font-black text-coksu-900">{formatRupiah(trx.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const POSSystem = ({ products, setProducts, categories, addTransaction, user, storeInfo }) => {
+      const [cart, setCart] = useState([]);
+      const [selectedCategory, setSelectedCategory] = useState('all');
+      const [searchTerm, setSearchTerm] = useState('');
+      const [isCheckingOut, setIsCheckingOut] = useState(false);
+      const [paymentAmount, setPaymentAmount] = useState('');
+      const [paymentMethod, setPaymentMethod] = useState('Tunai'); 
+      const [lastInvoice, setLastInvoice] = useState(null);
+      const [mobileTab, setMobileTab] = useState('menu');
+
+      const filteredProducts = products.filter(p => (selectedCategory === 'all' || p.categoryId === selectedCategory) && p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+      const cartTotal = cart.reduce((sum, item) => sum + (item.sellPrice * item.qty), 0);
+
+      const addToCart = (product) => {
+        if (product.stock <= 0) return;
+        setCart(prev => prev.find(i => i.id === product.id) ? prev.map(i => i.id === product.id ? { ...i, qty: Math.min(i.qty + 1, product.stock) } : i) : [...prev, { ...product, qty: 1 }]);
+      };
+
+      const updateQty = (id, delta) => setCart(prev => prev.map(i => i.id === id ? { ...i, qty: Math.min(Math.max(0, i.qty + delta), i.stock) } : i).filter(i => i.qty > 0));
+
+      const handleCheckout = (e) => {
+        e.preventDefault();
+        const paid = parseInt(paymentAmount) || 0;
+        if (paymentMethod === 'Tunai' && paid < cartTotal) return alert("Uang tunai kurang!");
+
+        const newTransaction = {
+          id: `TRX-${Date.now().toString().slice(-6)}`, 
+          date: new Date().toISOString(),
+          items: cart.map(c => ({ productId: c.id, name: c.name, qty: c.qty, price: c.sellPrice, subtotal: c.sellPrice * c.qty })),
+          total: cartTotal, 
+          payment: paymentMethod === 'Tunai' ? paid : cartTotal, 
+          change: paymentMethod === 'Tunai' ? paid - cartTotal : 0, 
+          paymentMethod, 
+          cashier: user.name
+        };
+
+        // Update Stok Produk
+        setProducts(products.map(p => { 
+          const item = cart.find(c => c.id === p.id); 
+          return item ? { ...p, stock: p.stock - item.qty } : p; 
+        }));
+
+        addTransaction(newTransaction);
+        setLastInvoice(newTransaction);
+        setCart([]); 
+        setIsCheckingOut(false); 
+        setPaymentAmount(''); 
+        setPaymentMethod('Tunai');
+      };
+
+      if (lastInvoice) {
+        return (
+          <div className="flex flex-col items-center justify-center animate-fade-in-up py-4">
+            <div className="mb-4 space-x-3 print:hidden flex">
+              <button onClick={() => setLastInvoice(null)} className="px-5 py-2.5 bg-white border border-krem-200 rounded-2xl font-bold hover:bg-krem-100 transition-colors">Kembali ke Kasir</button>
+              <button onClick={() => window.print()} className="px-5 py-2.5 bg-coksu-500 text-white rounded-2xl font-bold shadow-md hover:bg-coksu-600 transition-colors flex items-center">
+                <Icon name="printer" className="mr-2" size={18} /> Cetak Nota
+              </button>
+            </div>
+            <div id="print-area" className="bg-white p-6 border border-krem-200 shadow-xl w-full max-w-xs text-xs rounded-3xl mx-auto text-coksu-900">
+              <h2 className="text-base font-black text-center">{storeInfo.name}</h2>
+              <p className="text-center text-[10px] text-coksu-500 mt-0.5">{storeInfo.address}</p>
+              <p className="text-center text-[10px] text-coksu-500">{storeInfo.phone}</p>
+              
+              <div className="border-t border-b border-dashed border-krem-300 py-2 my-3 space-y-1 text-[11px]">
+                <div className="flex justify-between"><span>ID Nota:</span> <span className="font-bold">{lastInvoice.id}</span></div>
+                <div className="flex justify-between"><span>Tanggal:</span> <span>{formatDate(lastInvoice.date)}</span></div>
+                <div className="flex justify-between"><span>Kasir:</span> <span>{lastInvoice.cashier}</span></div>
+                <div className="flex justify-between"><span>Metode:</span> <span>{lastInvoice.paymentMethod}</span></div>
+              </div>
+
+              <div className="space-y-2 border-b border-dashed border-krem-300 pb-3">
+                {lastInvoice.items.map((item, idx) => (
+                  <div key={idx} className="flex justify-between">
+                    <div className="pr-2">
+                      <p className="font-bold">{item.name}</p>
+                      <p className="text-[10px] text-coksu-400">{item.qty} x {formatRupiah(item.price)}</p>
+                    </div>
+                    <div className="font-bold">{formatRupiah(item.subtotal)}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-3 space-y-1 font-bold text-[11px]">
+                <div className="flex justify-between text-sm font-black"><span>Total:</span> <span>{formatRupiah(lastInvoice.total)}</span></div>
+                <div className="flex justify-between"><span>Bayar:</span> <span>{formatRupiah(lastInvoice.payment)}</span></div>
+                <div className="flex justify-between"><span>Kembali:</span> <span>{formatRupiah(lastInvoice.change)}</span></div>
+              </div>
+
+              <p className="text-center text-[10px] text-coksu-400 mt-5 border-t border-krem-200 pt-2">{storeInfo.footerNote}</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex flex-col lg:flex-row h-full gap-5 animate-fade-in-up pb-20 lg:pb-0">
+          <div className="lg:hidden flex border border-krem-200 rounded-2xl bg-white shrink-0 p-1">
+            <button onClick={() => setMobileTab('menu')} className={`flex-1 py-2.5 text-xs font-bold rounded-xl ${mobileTab === 'menu' ? 'bg-coksu-500 text-white' : 'text-coksu-700'}`}>Daftar Menu</button>
+            <button onClick={() => setMobileTab('cart')} className={`flex-1 py-2.5 text-xs font-bold rounded-xl ${mobileTab === 'cart' ? 'bg-coksu-500 text-white' : 'text-coksu-700'}`}>Keranjang ({cart.reduce((s,i)=>s+i.qty,0)})</button>
+          </div>
+
+          {/* Product Menu List */}
+          <div className={`flex-1 flex-col min-h-0 ${mobileTab === 'menu' ? 'flex' : 'hidden lg:flex'}`}>
+            <div className="flex flex-col md:flex-row gap-3 mb-4 shrink-0">
+              <div className="relative flex-1">
+                <Icon name="search" className="absolute left-3.5 top-3 text-coksu-400" size={18} />
+                <input type="text" placeholder="Cari nama menu..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white border border-krem-200 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-coksu-400" />
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar shrink-0">
+                <button onClick={() => setSelectedCategory('all')} className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all ${selectedCategory === 'all' ? 'bg-coksu-500 text-white shadow-sm' : 'bg-white border border-krem-200 text-coksu-700 hover:bg-krem-100'}`}>Semua</button>
+                {categories.map(c => <button key={c.id} onClick={() => setSelectedCategory(c.id)} className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all whitespace-nowrap ${selectedCategory === c.id ? 'bg-coksu-500 text-white shadow-sm' : 'bg-white border border-krem-200 text-coksu-700 hover:bg-krem-100'}`}>{c.name}</button>)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 overflow-y-auto pb-6 custom-scrollbar pr-1">
+              {filteredProducts.map(p => (
+                <div key={p.id} onClick={() => addToCart(p)} className={`bg-white border border-krem-200 rounded-3xl p-4 cursor-pointer hover:border-coksu-400 hover:shadow-md transition-all flex flex-col justify-between ${p.stock <= 0 ? 'opacity-50 pointer-events-none bg-gray-50' : ''}`}>
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-krem-100 text-coksu-700">{categories.find(c => c.id === p.categoryId)?.name || 'Umum'}</span>
+                      <span className={`text-[10px] font-bold ${p.stock < 10 ? 'text-red-500' : 'text-coksu-400'}`}>Stok: {p.stock}</span>
+                    </div>
+                    <h3 className="font-bold text-xs text-coksu-900 line-clamp-2">{p.name}</h3>
+                  </div>
+                  <div className="mt-3 flex justify-between items-center">
+                    <p className="text-coksu-600 font-black text-sm">{formatRupiah(p.sellPrice)}</p>
+                    <button className="w-8 h-8 rounded-xl bg-krem-100 text-coksu-800 flex items-center justify-center font-bold hover:bg-coksu-500 hover:text-white transition-colors">+</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cart Sidebar */}
+          <div className={`w-full lg:w-[360px] bg-white rounded-3xl border border-krem-200 flex flex-col shrink-0 shadow-sm ${mobileTab === 'cart' ? 'flex h-[420px]' : 'hidden lg:flex'}`}>
+            <div className="p-4 bg-coksu-50 border-b border-krem-200 font-bold text-xs text-coksu-900 flex justify-between items-center rounded-t-3xl">
+              <span>Keranjang Pesanan</span>
+              <span className="bg-coksu-200 text-coksu-800 px-2 py-0.5 rounded-lg text-[10px]">{cart.length} Jenis</span>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar text-xs">
+              {cart.length === 0 ? (
+                <div className="text-center py-12 text-coksu-400 space-y-2">
+                  <Icon name="cart" size={32} className="mx-auto text-coksu-300" />
+                  <p className="font-semibold text-xs">Keranjang masih kosong</p>
+                </div>
+              ) : (
+                cart.map(item => (
+                  <div key={item.id} className="flex justify-between items-center border-b border-krem-100 pb-2.5">
+                    <div className="flex-1 pr-2">
+                      <h4 className="font-bold text-coksu-900 truncate">{item.name}</h4>
+                      <p className="text-[10px] text-coksu-500 font-semibold">{formatRupiah(item.sellPrice)}</p>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-krem-50 p-1 rounded-xl border border-krem-200">
+                      <button onClick={() => updateQty(item.id, -1)} className="w-6 h-6 rounded-lg bg-white font-black text-coksu-800 shadow-sm flex items-center justify-center">-</button>
+                      <span className="font-bold px-1">{item.qty}</span>
+                      <button onClick={() => updateQty(item.id, 1)} className="w-6 h-6 rounded-lg bg-white font-black text-coksu-800 shadow-sm flex items-center justify-center">+</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-4 bg-krem-50 border-t border-krem-200 rounded-b-3xl">
+              <div className="flex justify-between font-black text-sm text-coksu-900 mb-3">
+                <span>Total Bayar</span>
+                <span className="text-coksu-600">{formatRupiah(cartTotal)}</span>
+              </div>
+              <button disabled={cart.length === 0} onClick={() => setIsCheckingOut(true)} className="w-full py-3.5 bg-coksu-500 disabled:bg-coksu-200 text-white rounded-2xl font-bold shadow-md hover:bg-coksu-600 transition-colors">Proses Pembayaran</button>
+            </div>
+          </div>
+
+          {/* Checkout Modal */}
+          {isCheckingOut && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-fade-in">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm overflow-hidden p-6">
+                <div className="flex justify-between items-center mb-4 border-b border-krem-100 pb-3">
+                  <h2 className="text-lg font-black text-coksu-900">Konfirmasi Pembayaran</h2>
+                  <button onClick={() => setIsCheckingOut(false)} className="text-coksu-400 hover:text-coksu-700"><Icon name="close" size={20} /></button>
+                </div>
+                <form onSubmit={handleCheckout} className="space-y-4 text-xs">
+                  <div className="bg-krem-50 p-3 rounded-2xl border border-krem-200 flex justify-between items-center">
+                    <span className="text-coksu-500 font-bold">Total Tagihan:</span>
+                    <span className="text-base font-black text-coksu-800">{formatRupiah(cartTotal)}</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-coksu-700 font-bold mb-1">Metode Pembayaran</label>
+                    <select className="w-full p-3 rounded-xl border border-krem-200 bg-white font-bold outline-none" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                      <option>Tunai</option>
+                      <option>QRIS</option>
+                      <option>Transfer Bank</option>
+                    </select>
+                  </div>
+
+                  {paymentMethod === 'Tunai' && (
+                    <div>
+                      <label className="block text-coksu-700 font-bold mb-1">Uang Diterima</label>
+                      <input type="number" required min={cartTotal} placeholder="Masukkan jumlah uang" className="w-full p-3 rounded-xl border border-krem-200 bg-white font-black text-sm outline-none focus:ring-2 focus:ring-coksu-400" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} />
+                      {parseInt(paymentAmount) >= cartTotal && (
+                        <p className="text-[11px] font-bold text-emerald-600 mt-1.5">Kembalian: {formatRupiah(parseInt(paymentAmount) - cartTotal)}</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex space-x-2 pt-2">
+                    <button type="button" onClick={() => setIsCheckingOut(false)} className="flex-1 py-3 border border-krem-200 rounded-xl font-bold text-coksu-700 hover:bg-krem-50">Batal</button>
+                    <button type="submit" className="flex-[2] py-3 bg-coksu-500 text-white rounded-xl font-bold shadow-md hover:bg-coksu-600">Selesaikan Transaksi</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ProductsManager = ({ products, setProducts, categories, setCategories }) => {
+      const [activeSubTab, setActiveSubTab] = useState('products');
+      const [searchTerm, setSearchTerm] = useState('');
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editingProduct, setEditingProduct] = useState(null);
+
+      // Category Modal State
+      const [newCategoryName, setNewCategoryName] = useState('');
+
+      // Product Form State
+      const [productForm, setProductForm] = useState({
+        name: '', categoryId: categories[0]?.id || 1, stock: 0, costPrice: 0, sellPrice: 0
+      });
+
+      const handleOpenProductModal = (prod = null) => {
+        if (prod) {
+          setEditingProduct(prod);
+          setProductForm({ name: prod.name, categoryId: prod.categoryId, stock: prod.stock, costPrice: prod.costPrice, sellPrice: prod.sellPrice });
+        } else {
+          setEditingProduct(null);
+          setProductForm({ name: '', categoryId: categories[0]?.id || 1, stock: 10, costPrice: 0, sellPrice: 0 });
+        }
+        setIsModalOpen(true);
+      };
+
+      const handleSaveProduct = (e) => {
+        e.preventDefault();
+        if (editingProduct) {
+          setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...productForm, categoryId: Number(productForm.categoryId), stock: Number(productForm.stock), costPrice: Number(productForm.costPrice), sellPrice: Number(productForm.sellPrice) } : p));
+        } else {
+          const newProd = { id: Date.now(), ...productForm, categoryId: Number(productForm.categoryId), stock: Number(productForm.stock), costPrice: Number(productForm.costPrice), sellPrice: Number(productForm.sellPrice) };
+          setProducts([...products, newProd]);
+        }
+        setIsModalOpen(false);
+      };
+
+      const handleDeleteProduct = (id) => {
+        if (confirm("Apakah Anda yakin ingin menghapus produk ini?")) {
+          setProducts(products.filter(p => p.id !== id));
+        }
+      };
+
+      const handleAddCategory = (e) => {
+        e.preventDefault();
+        if (!newCategoryName.trim()) return;
+        setCategories([...categories, { id: Date.now(), name: newCategoryName.trim() }]);
+        setNewCategoryName('');
+      };
+
+      const handleDeleteCategory = (id) => {
+        if (confirm("Hapus kategori ini?")) {
+          setCategories(categories.filter(c => c.id !== id));
+        }
+      };
+
+      const filtered = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+      return (
+        <div className="space-y-6 pb-24 lg:pb-0 animate-fade-in-up">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-extrabold text-coksu-900">Kelola Menu & Kategori</h1>
+              <p className="text-xs text-coksu-500 font-medium">Atur produk, daftar harga, HPP, dan persediaan stok</p>
+            </div>
+            <div className="flex space-x-2 bg-white p-1 rounded-2xl border border-krem-200">
+              <button onClick={() => setActiveSubTab('products')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'products' ? 'bg-coksu-500 text-white shadow-sm' : 'text-coksu-700'}`}>Daftar Menu</button>
+              <button onClick={() => setActiveSubTab('categories')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'categories' ? 'bg-coksu-500 text-white shadow-sm' : 'text-coksu-700'}`}>Kategori</button>
+            </div>
+          </div>
+
+          {activeSubTab === 'products' ? (
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200 space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-center gap-3">
+                <div className="relative w-full md:w-72">
+                  <Icon name="search" className="absolute left-3.5 top-3 text-coksu-400" size={18} />
+                  <input type="text" placeholder="Cari menu..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-krem-50 border border-krem-200 rounded-2xl text-xs font-bold outline-none" />
+                </div>
+                <button onClick={() => handleOpenProductModal()} className="w-full md:w-auto px-4 py-2.5 bg-coksu-500 text-white rounded-2xl text-xs font-bold flex items-center justify-center hover:bg-coksu-600 transition-colors shadow-sm">
+                  <Icon name="plus" size={16} className="mr-1.5" /> Tambah Menu Baru
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-krem-200 text-coksu-400 font-bold uppercase tracking-wider">
+                      <th className="pb-3">Nama Menu</th>
+                      <th className="pb-3">Kategori</th>
+                      <th className="pb-3">Stok</th>
+                      <th className="pb-3">HPP (Modal)</th>
+                      <th className="pb-3">Harga Jual</th>
+                      <th className="pb-3 text-right">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-krem-100">
+                    {filtered.map(p => (
+                      <tr key={p.id} className="hover:bg-krem-50">
+                        <td className="py-3 font-bold text-coksu-900">{p.name}</td>
+                        <td className="py-3"><span className="bg-krem-100 px-2 py-0.5 rounded-md text-[10px] font-extrabold text-coksu-700">{categories.find(c => c.id === p.categoryId)?.name || '-'}</span></td>
+                        <td className="py-3 font-bold">{p.stock}</td>
+                        <td className="py-3 text-coksu-500">{formatRupiah(p.costPrice)}</td>
+                        <td className="py-3 font-black text-coksu-900">{formatRupiah(p.sellPrice)}</td>
+                        <td className="py-3 text-right space-x-2">
+                          <button onClick={() => handleOpenProductModal(p)} className="p-1.5 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100"><Icon name="edit" size={16} /></button>
+                          <button onClick={() => handleDeleteProduct(p.id)} className="p-1.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100"><Icon name="trash2" size={16} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+                <h3 className="font-bold text-sm text-coksu-900 mb-3">Tambah Kategori Baru</h3>
+                <form onSubmit={handleAddCategory} className="space-y-3 text-xs">
+                  <input type="text" placeholder="Nama Kategori..." value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold outline-none" />
+                  <button type="submit" className="w-full py-3 bg-coksu-500 text-white rounded-xl font-bold">Simpan Kategori</button>
+                </form>
+              </div>
+
+              <div className="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+                <h3 className="font-bold text-sm text-coksu-900 mb-3">Daftar Kategori</h3>
+                <div className="divide-y divide-krem-100">
+                  {categories.map(c => (
+                    <div key={c.id} className="py-3 flex justify-between items-center text-xs">
+                      <span className="font-bold text-coksu-800">{c.name}</span>
+                      <button onClick={() => handleDeleteCategory(c.id)} className="p-1.5 bg-red-50 text-red-600 rounded-xl hover:bg-red-100"><Icon name="trash2" size={16} /></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Add/Edit Product */}
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6">
+                <h2 className="text-lg font-black text-coksu-900 mb-4">{editingProduct ? 'Edit Menu' : 'Tambah Menu Baru'}</h2>
+                <form onSubmit={handleSaveProduct} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-coksu-700 font-bold mb-1">Nama Menu</label>
+                    <input type="text" required value={productForm.name} onChange={e => setProductForm({...productForm, name: e.target.value})} className="w-full p-3 border border-krem-200 rounded-xl font-bold bg-krem-50" />
+                  </div>
+                  <div>
+                    <label className="block text-coksu-700 font-bold mb-1">Kategori</label>
+                    <select value={productForm.categoryId} onChange={e => setProductForm({...productForm, categoryId: e.target.value})} className="w-full p-3 border border-krem-200 rounded-xl font-bold bg-krem-50">
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-coksu-700 font-bold mb-1">Stok</label>
+                      <input type="number" required value={productForm.stock} onChange={e => setProductForm({...productForm, stock: e.target.value})} className="w-full p-3 border border-krem-200 rounded-xl font-bold bg-krem-50" />
+                    </div>
+                    <div>
+                      <label className="block text-coksu-700 font-bold mb-1">HPP (Modal)</label>
+                      <input type="number" required value={productForm.costPrice} onChange={e => setProductForm({...productForm, costPrice: e.target.value})} className="w-full p-3 border border-krem-200 rounded-xl font-bold bg-krem-50" />
+                    </div>
+                    <div>
+                      <label className="block text-coksu-700 font-bold mb-1">Harga Jual</label>
+                      <input type="number" required value={productForm.sellPrice} onChange={e => setProductForm({...productForm, sellPrice: e.target.value})} className="w-full p-3 border border-krem-200 rounded-xl font-bold bg-krem-50" />
+                    </div>
+                  </div>
+                  <div className="flex space-x-2 pt-3">
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3 border border-krem-200 rounded-xl font-bold">Batal</button>
+                    <button type="submit" className="flex-1 py-3 bg-coksu-500 text-white rounded-xl font-bold">Simpan</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ExpensesManager = ({ expenses, setExpenses }) => {
+      const [desc, setDesc] = useState('');
+      const [amount, setAmount] = useState('');
+      const [category, setCategory] = useState('Bahan Baku');
+
+      const handleAddExpense = (e) => {
+        e.preventDefault();
+        if (!desc || !amount) return;
+        const newExp = { id: Date.now(), date: new Date().toISOString(), description: desc, amount: Number(amount), category };
+        setExpenses([newExp, ...expenses]);
+        setDesc(''); setAmount('');
+      };
+
+      const handleDelete = (id) => {
+        if (confirm("Hapus catatan pengeluaran ini?")) {
+          setExpenses(expenses.filter(e => e.id !== id));
+        }
+      };
+
+      const totalExpense = expenses.reduce((s, i) => s + i.amount, 0);
+
+      return (
+        <div className="space-y-6 pb-24 lg:pb-0 animate-fade-in-up">
+          <div>
+            <h1 className="text-2xl font-extrabold text-coksu-900">Pengeluaran & Operasional</h1>
+            <p className="text-xs text-coksu-500 font-medium">Catat biaya belanja bahan baku dan operasional harian kedai</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+              <h3 className="font-bold text-sm text-coksu-900 mb-4">Catat Pengeluaran Baru</h3>
+              <form onSubmit={handleAddExpense} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Keterangan Biaya</label>
+                  <input type="text" required placeholder="misal: Beli Biji Kopi" value={desc} onChange={e => setDesc(e.target.value)} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold outline-none" />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Jumlah Biaya (Rp)</label>
+                  <input type="number" required placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold outline-none" />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Kategori Biaya</label>
+                  <select value={category} onChange={e => setCategory(e.target.value)} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold outline-none">
+                    <option>Bahan Baku</option>
+                    <option>Operasional</option>
+                    <option>Gaji Karyawan</option>
+                    <option>Lain-lain</option>
+                  </select>
+                </div>
+                <button type="submit" className="w-full py-3 bg-coksu-500 text-white rounded-xl font-bold shadow-md hover:bg-coksu-600 transition-colors">Tambah Pengeluaran</button>
+              </form>
+            </div>
+
+            <div className="md:col-span-2 bg-white rounded-3xl p-6 shadow-sm border border-krem-200 flex flex-col justify-between">
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-sm text-coksu-900">Riwayat Pengeluaran</h3>
+                  <span className="text-xs font-black text-red-600 bg-red-50 px-3 py-1 rounded-xl">Total: {formatRupiah(totalExpense)}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-krem-200 text-coksu-400 font-bold uppercase tracking-wider">
+                        <th className="pb-3">Tanggal</th>
+                        <th className="pb-3">Keterangan</th>
+                        <th className="pb-3">Kategori</th>
+                        <th className="pb-3 text-right">Biaya</th>
+                        <th className="pb-3 text-right">Hapus</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-krem-100">
+                      {expenses.map(exp => (
+                        <tr key={exp.id} className="hover:bg-krem-50">
+                          <td className="py-3 text-coksu-500">{formatDate(exp.date)}</td>
+                          <td className="py-3 font-bold text-coksu-900">{exp.description}</td>
+                          <td className="py-3"><span className="bg-krem-100 px-2 py-0.5 rounded-lg text-[10px] font-bold text-coksu-700">{exp.category}</span></td>
+                          <td className="py-3 text-right font-black text-red-600">{formatRupiah(exp.amount)}</td>
+                          <td className="py-3 text-right">
+                            <button onClick={() => handleDelete(exp.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-xl"><Icon name="trash2" size={16} /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ReportsManager = ({ transactions, storeInfo }) => {
+      const [filterDate, setFilterDate] = useState('');
+      const [selectedTrx, setSelectedTrx] = useState(null);
+
+      const filtered = transactions.filter(t => !filterDate || t.date.startsWith(filterDate));
+
+      const exportExcel = () => {
+        const data = filtered.map(t => ({
+          'ID Nota': t.id,
+          'Waktu': formatDate(t.date),
+          'Kasir': t.cashier,
+          'Metode': t.paymentMethod,
+          'Total Tagihan': t.total
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Laporan Transaksi");
+        XLSX.writeFile(wb, `Laporan_Transaksi_${Date.now()}.xlsx`);
+      };
+
+      const exportPDF = () => {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.text(`Laporan Penjualan - ${storeInfo.name}`, 14, 15);
+        const rows = filtered.map(t => [t.id, formatDate(t.date), t.cashier, t.paymentMethod, formatRupiah(t.total)]);
+        doc.autoTable({
+          head: [['ID Nota', 'Waktu', 'Kasir', 'Metode', 'Total']],
+          body: rows,
+          startY: 22
+        });
+        doc.save(`Laporan_Penjualan_${Date.now()}.pdf`);
+      };
+
+      return (
+        <div className="space-y-6 pb-24 lg:pb-0 animate-fade-in-up">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-extrabold text-coksu-900">Riwayat & Laporan Transaksi</h1>
+              <p className="text-xs text-coksu-500 font-medium">Rekapitulasi penjualan, cetak ulang nota, dan ekspor data PDF/Excel</p>
+            </div>
+            <div className="flex space-x-2">
+              <button onClick={exportExcel} className="px-4 py-2.5 bg-emerald-600 text-white rounded-2xl text-xs font-bold shadow-sm flex items-center hover:bg-emerald-700">
+                <Icon name="download" size={16} className="mr-1.5" /> Excel
+              </button>
+              <button onClick={exportPDF} className="px-4 py-2.5 bg-red-600 text-white rounded-2xl text-xs font-bold shadow-sm flex items-center hover:bg-red-700">
+                <Icon name="download" size={16} className="mr-1.5" /> PDF
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200 space-y-4">
+            <div className="flex items-center space-x-3">
+              <label className="text-xs font-bold text-coksu-700">Filter Tanggal:</label>
+              <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 border border-krem-200 rounded-xl text-xs font-bold bg-krem-50" />
+              {filterDate && <button onClick={() => setFilterDate('')} className="text-xs text-red-500 font-bold">Reset</button>}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-krem-200 text-coksu-400 font-bold uppercase tracking-wider">
+                    <th className="pb-3">ID Nota</th>
+                    <th className="pb-3">Waktu</th>
+                    <th className="pb-3">Kasir</th>
+                    <th className="pb-3">Metode</th>
+                    <th className="pb-3 text-right">Total</th>
+                    <th className="pb-3 text-right">Detail</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-krem-100">
+                  {filtered.map(t => (
+                    <tr key={t.id} className="hover:bg-krem-50">
+                      <td className="py-3 font-bold text-coksu-900">{t.id}</td>
+                      <td className="py-3 text-coksu-500">{formatDate(t.date)}</td>
+                      <td className="py-3 font-medium">{t.cashier}</td>
+                      <td className="py-3"><span className="bg-krem-100 px-2 py-0.5 rounded-lg text-[10px] font-bold text-coksu-700">{t.paymentMethod}</span></td>
+                      <td className="py-3 text-right font-black text-coksu-900">{formatRupiah(t.total)}</td>
+                      <td className="py-3 text-right">
+                        <button onClick={() => setSelectedTrx(t)} className="p-1.5 bg-coksu-100 text-coksu-800 rounded-xl hover:bg-coksu-200 font-bold text-[10px]">Lihat Nota</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Modal Detail Nota */}
+          {selectedTrx && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-6">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="font-bold text-sm text-coksu-900">Detail Nota {selectedTrx.id}</h3>
+                  <button onClick={() => setSelectedTrx(null)}><Icon name="close" size={18} /></button>
+                </div>
+                <div className="space-y-2 text-xs border-t border-b border-krem-200 py-3 my-2">
+                  {selectedTrx.items.map((item, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span>{item.name} ({item.qty}x)</span>
+                      <span className="font-bold">{formatRupiah(item.subtotal)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between font-black text-sm mb-4">
+                  <span>Total Tagihan:</span>
+                  <span>{formatRupiah(selectedTrx.total)}</span>
+                </div>
+                <button onClick={() => window.print()} className="w-full py-3 bg-coksu-500 text-white rounded-xl font-bold flex items-center justify-center">
+                  <Icon name="printer" className="mr-2" size={16} /> Cetak Nota Ini
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const SettingsSync = ({ storeInfo, setStoreInfo, appsScriptUrl, setAppsScriptUrl, handleManualSync, syncStatus }) => {
+      const [formStore, setFormStore] = useState(storeInfo);
+      const [scriptUrlInput, setScriptUrlInput] = useState(appsScriptUrl);
+
+      const handleSaveStore = (e) => {
+        e.preventDefault();
+        setStoreInfo(formStore);
+        setAppsScriptUrl(scriptUrlInput);
+        alert("Pengaturan berhasil disimpan!");
+      };
+
+      return (
+        <div className="space-y-6 pb-24 lg:pb-0 animate-fade-in-up">
+          <div>
+            <h1 className="text-2xl font-extrabold text-coksu-900">Pengaturan & Sinkronisasi</h1>
+            <p className="text-xs text-coksu-500 font-medium">Konfigurasi identitas toko, nota kasir, dan Google Apps Script</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200">
+              <h3 className="font-bold text-sm text-coksu-900 mb-4 flex items-center"><Icon name="store" className="mr-2 text-coksu-500" /> Identitas Kedai / Toko</h3>
+              <form onSubmit={handleSaveStore} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Nama Toko</label>
+                  <input type="text" value={formStore.name} onChange={e => setFormStore({...formStore, name: e.target.value})} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold" />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Alamat Kedai</label>
+                  <input type="text" value={formStore.address} onChange={e => setFormStore({...formStore, address: e.target.value})} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold" />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Nomor Telepon</label>
+                  <input type="text" value={formStore.phone} onChange={e => setFormStore({...formStore, phone: e.target.value})} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold" />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Pesan Kaki Nota (Footer)</label>
+                  <input type="text" value={formStore.footerNote} onChange={e => setFormStore({...formStore, footerNote: e.target.value})} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-bold" />
+                </div>
+                <button type="submit" className="w-full py-3 bg-coksu-500 text-white rounded-xl font-bold shadow-md hover:bg-coksu-600 transition-colors">Simpan Identitas</button>
+              </form>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-krem-200 flex flex-col justify-between space-y-4">
+              <div>
+                <h3 className="font-bold text-sm text-coksu-900 mb-4 flex items-center"><Icon name="refreshCw" className="mr-2 text-coksu-500" /> Webhook Google Apps Script</h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-coksu-700 font-bold mb-1">Apps Script Web App URL</label>
+                    <input type="url" value={scriptUrlInput} onChange={e => setScriptUrlInput(e.target.value)} className="w-full p-3 bg-krem-50 border border-krem-200 rounded-xl font-mono text-[10px]" />
+                  </div>
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-800 space-y-1">
+                    <p className="font-bold">Informasi Integrasi Cloud:</p>
+                    <p>URL di atas digunakan untuk mengirim laporan transaksi secara langsung ke Google Sheets secara otomatis atau manual.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-krem-100">
+                <button onClick={handleManualSync} className="w-full py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-md hover:bg-emerald-700 transition-colors flex items-center justify-center">
+                  <Icon name="refreshCw" size={18} className="mr-2" /> Sinkronkan Data Sekarang
+                </button>
+                {syncStatus && <p className="text-center text-[10px] font-bold text-coksu-500 mt-2">{syncStatus}</p>}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    function App() {
+      const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('titiknol_user')));
+      const [adminPassword] = useState('admin123'); 
+      const [kasirPassword] = useState('kasir123');
+
+      const [categories, setCategories] = useState(() => JSON.parse(localStorage.getItem('titiknol_categories')) || initialCategories);
+      const [products, setProducts] = useState(() => JSON.parse(localStorage.getItem('titiknol_products')) || initialProducts);
+      const [transactions, setTransactions] = useState(() => JSON.parse(localStorage.getItem('titiknol_transactions')) || initialTransactions);
+      const [expenses, setExpenses] = useState(() => JSON.parse(localStorage.getItem('titiknol_expenses')) || initialExpenses);
+      const [storeInfo, setStoreInfo] = useState(() => JSON.parse(localStorage.getItem('titiknol_store_info')) || defaultStoreInfo);
+      const [appsScriptUrl, setAppsScriptUrl] = useState(() => localStorage.getItem('titiknol_script_url') || DEFAULT_APPS_SCRIPT_URL);
+
+      const [loginForm, setLoginForm] = useState({ username: '', password: '', customCashierName: '' });
+      const [loginError, setLoginError] = useState('');
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+      // PWA & Sync States
+      const [isOnline, setIsOnline] = useState(navigator.onLine);
+      const [pwaPrompt, setPwaPrompt] = useState(null);
+      const [updateAvailable, setUpdateAvailable] = useState(false);
+      const [syncStatus, setSyncStatus] = useState('');
+      const [isSyncing, setIsSyncing] = useState(false);
+
+      // Persistence Effects
+      useEffect(() => { localStorage.setItem('titiknol_categories', JSON.stringify(categories)); }, [categories]);
+      useEffect(() => { localStorage.setItem('titiknol_products', JSON.stringify(products)); }, [products]);
+      useEffect(() => { localStorage.setItem('titiknol_transactions', JSON.stringify(transactions)); }, [transactions]);
+      useEffect(() => { localStorage.setItem('titiknol_expenses', JSON.stringify(expenses)); }, [expenses]);
+      useEffect(() => { localStorage.setItem('titiknol_store_info', JSON.stringify(storeInfo)); }, [storeInfo]);
+      useEffect(() => { localStorage.setItem('titiknol_script_url', appsScriptUrl); }, [appsScriptUrl]);
+
+      // Manual Sync Function
+      const handleManualSync = async () => {
+        setIsSyncing(true);
+        setSyncStatus('Menghubungkan ke Google Apps Script...');
+        try {
+          const queue = JSON.parse(localStorage.getItem('titiknol_sync_queue') || '[]');
+          const payload = queue.length > 0 ? queue : transactions.slice(0, 5);
+
+          await Promise.all(payload.map(trx => 
+            fetch(appsScriptUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(trx) })
+          ));
+
+          localStorage.removeItem('titiknol_sync_queue');
+          setSyncStatus('Sinkronisasi Berhasil Dikirim!');
+        } catch (err) {
+          setSyncStatus('Gagal sinkronisasi. Cek koneksi internet.');
+        } finally {
+          setIsSyncing(false);
+          setTimeout(() => setSyncStatus(''), 4000);
+        }
+      };
+
+      // Online/Offline & PWA Install Listener
+      useEffect(() => {
+        const handleOnline = () => {
+          setIsOnline(true);
+          const queue = JSON.parse(localStorage.getItem('titiknol_sync_queue') || '[]');
+          if (queue.length > 0) handleManualSync();
+        };
+        const handleOffline = () => setIsOnline(false);
+
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); setPwaPrompt(e); });
+        window.addEventListener('pwa-update-available', () => setUpdateAvailable(true));
+
+        return () => {
+          window.removeEventListener('online', handleOnline);
+          window.removeEventListener('offline', handleOffline);
+        };
+      }, [appsScriptUrl, transactions]);
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        if (loginForm.username === 'admin' && loginForm.password === adminPassword) {
+          const u = { role: 'admin', name: 'Super Admin' };
+          setUser(u); localStorage.setItem('titiknol_user', JSON.stringify(u));
+          setActiveTab('dashboard');
+        } else if (loginForm.username === 'kasir' && loginForm.password === kasirPassword) {
+          const u = { role: 'kasir', name: loginForm.customCashierName || 'Kasir Kedai' };
+          setUser(u); localStorage.setItem('titiknol_user', JSON.stringify(u));
+          setActiveTab('pos');
+        } else {
+          setLoginError('Username atau Password salah!');
+        }
+      };
+
+      if (!user) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4 bg-coksu-900">
+            <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md">
+              <div className="text-center mb-6">
+                <h2 className="text-2xl font-black text-coksu-900 tracking-tight">KEDAI TITIK NOL</h2>
+                <p className="text-xs text-coksu-500 font-bold mt-1">Sistem POS & Management Kasir</p>
+              </div>
+              {loginError && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold text-center">{loginError}</div>}
+              <form onSubmit={handleLogin} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Username</label>
+                  <input required placeholder="admin / kasir" className="w-full px-4 py-3 rounded-xl border border-krem-200 outline-none focus:ring-2 focus:ring-coksu-400 font-bold" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-coksu-700 font-bold mb-1">Password</label>
+                  <input required type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-krem-200 outline-none focus:ring-2 focus:ring-coksu-400 font-bold" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} />
+                </div>
+                {loginForm.username === 'kasir' && (
+                  <div>
+                    <label className="block text-coksu-700 font-bold mb-1">Nama Kasir Bertugas</label>
+                    <input required placeholder="Nama Anda" className="w-full px-4 py-3 rounded-xl border border-krem-200 outline-none font-bold" value={loginForm.customCashierName} onChange={e => setLoginForm({...loginForm, customCashierName: e.target.value})} />
+                  </div>
+                )}
+                <button type="submit" className="w-full py-3.5 bg-coksu-500 text-white rounded-xl font-bold shadow-md hover:bg-coksu-600 transition-colors mt-2 text-sm">Masuk ke Aplikasi</button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      const SidebarContent = () => (
+        <>
+          <div className="p-6 shrink-0">
+            <h2 className="text-2xl font-black text-coksu-50 tracking-tight">TITIK NOL</h2>
+            <p className="text-coksu-300 text-[10px] font-bold mt-1 uppercase tracking-widest">Sistem Kasir POS</p>
+          </div>
+          <div className="flex-1 px-4 space-y-2 overflow-y-auto custom-scrollbar">
+            {user.role === 'admin' && <SidebarItem icon={<Icon name="dashboard"/>} label="Dashboard" active={activeTab==='dashboard'} onClick={()=>{setActiveTab('dashboard'); setIsSidebarOpen(false);}} />}
+            <SidebarItem icon={<Icon name="cart"/>} label="Kasir (POS)" active={activeTab==='pos'} onClick={()=>{setActiveTab('pos'); setIsSidebarOpen(false);}} />
+            {user.role === 'admin' && (
+              <>
+                <SidebarItem icon={<Icon name="package"/>} label="Kelola Menu" active={activeTab==='products'} onClick={()=>{setActiveTab('products'); setIsSidebarOpen(false);}} />
+                <SidebarItem icon={<Icon name="wallet"/>} label="Pengeluaran" active={activeTab==='expenses'} onClick={()=>{setActiveTab('expenses'); setIsSidebarOpen(false);}} />
+                <SidebarItem icon={<Icon name="fileText"/>} label="Riwayat & Laporan" active={activeTab==='reports'} onClick={()=>{setActiveTab('reports'); setIsSidebarOpen(false);}} />
+                <SidebarItem icon={<Icon name="settings"/>} label="Pengaturan & Sync" active={activeTab==='settings'} onClick={()=>{setActiveTab('settings'); setIsSidebarOpen(false);}} />
+              </>
+            )}
+          </div>
+          <div className="p-4 border-t border-coksu-800 shrink-0">
+            <div className="mb-3 px-2 flex justify-between items-center text-xs">
+              <span className="text-coksu-300 font-medium truncate">{user.name}</span>
+              <span className="text-[10px] bg-coksu-700 px-2 py-0.5 rounded-md font-bold uppercase">{user.role}</span>
+            </div>
+            <button onClick={()=>{setUser(null); localStorage.removeItem('titiknol_user');}} className="w-full py-2.5 bg-red-500/10 text-red-400 font-bold text-xs rounded-xl flex items-center justify-center hover:bg-red-500/20">
+              <Icon name="logout" className="mr-2" size={16}/> Keluar
+            </button>
+          </div>
+        </>
+      );
+
+      return (
+        <div className="flex h-screen w-full bg-krem-50 overflow-hidden">
+          {/* Desktop Sidebar */}
+          <div className="hidden lg:flex w-64 bg-coksu-900 text-white flex-col shrink-0">{SidebarContent()}</div>
+          
+          {/* Mobile Sidebar Overlay */}
+          {isSidebarOpen && (
+            <div className="lg:hidden fixed inset-0 z-50 flex">
+              <div className="w-64 bg-coksu-900 text-white flex flex-col shadow-2xl animate-fade-in">{SidebarContent()}</div>
+              <div className="flex-1 bg-black/50" onClick={() => setIsSidebarOpen(false)}></div>
+            </div>
+          )}
+
+          <div className="flex-1 flex flex-col h-screen overflow-hidden">
+            {/* Update PWA Banner */}
+            {updateAvailable && (
+              <div className="bg-coksu-500 text-white px-4 py-2.5 text-xs font-bold flex justify-between items-center shrink-0">
+                <span className="flex items-center"><Icon name="refreshCw" size={14} className="mr-2 animate-spin-slow" /> Versi PWA baru tersedia!</span>
+                <button onClick={() => window.location.reload(true)} className="bg-white text-coksu-700 px-3 py-1 rounded-lg shadow-sm">Muat Ulang</button>
+              </div>
+            )}
+
+            {/* Topbar Header */}
+            <header className="bg-white h-16 border-b border-krem-200 flex items-center justify-between px-4 lg:px-6 shrink-0 z-10">
+              <div className="flex items-center">
+                <button className="lg:hidden p-2 -ml-2 text-coksu-900 mr-2" onClick={() => setIsSidebarOpen(true)}><Icon name="menu" size={24}/></button>
+                <h1 className="lg:hidden font-black text-coksu-900 text-base">{storeInfo.name}</h1>
+              </div>
+              
+              <div className="flex items-center space-x-2.5">
+                {/* Manual Sync Button in Topbar */}
+                <button onClick={handleManualSync} disabled={isSyncing} className="flex items-center px-3 py-1.5 bg-coksu-50 border border-coksu-200 text-coksu-800 rounded-xl text-xs font-bold hover:bg-coksu-100 transition-colors">
+                  <Icon name="refreshCw" size={14} className={`mr-1.5 text-coksu-600 ${isSyncing ? 'animate-spin-slow' : ''}`} />
+                  <span>{isSyncing ? 'Syncing...' : 'Sinkronkan'}</span>
+                </button>
+
+                {/* PWA Install Button */}
+                {pwaPrompt && (
+                  <button onClick={() => pwaPrompt.prompt()} className="flex items-center px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-sm hover:bg-emerald-700">
+                    <Icon name="download" size={14} className="mr-1.5" /> Install App
+                  </button>
+                )}
+
+                {/* Network Status Badge */}
+                <div className={`flex items-center px-3 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-widest ${isOnline ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                  <span className={`w-2 h-2 rounded-full mr-1.5 ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span> {isOnline ? 'Online' : 'Offline'}
+                </div>
+              </div>
+            </header>
+
+            {/* Main Content Area */}
+            <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-krem-50">
+              {activeTab === 'dashboard' && <AdminDashboard transactions={transactions} products={products} expenses={expenses} />}
+              {activeTab === 'pos' && <POSSystem products={products} setProducts={setProducts} categories={categories} addTransaction={(t) => setTransactions([t, ...transactions])} user={user} storeInfo={storeInfo} />}
+              {activeTab === 'products' && <ProductsManager products={products} setProducts={setProducts} categories={categories} setCategories={setCategories} />}
+              {activeTab === 'expenses' && <ExpensesManager expenses={expenses} setExpenses={setExpenses} />}
+              {activeTab === 'reports' && <ReportsManager transactions={transactions} storeInfo={storeInfo} />}
+              {activeTab === 'settings' && <SettingsSync storeInfo={storeInfo} setStoreInfo={setStoreInfo} appsScriptUrl={appsScriptUrl} setAppsScriptUrl={setAppsScriptUrl} handleManualSync={handleManualSync} syncStatus={syncStatus} />}
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+
+  <script>
+    if ('serviceWorker' in navigator && (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(registration => {
+            console.log('ServiceWorker terdaftar:', registration.scope);
+            registration.onupdatefound = () => {
+              const installingWorker = registration.installing;
+              installingWorker.onstatechange = () => {
+                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  window.dispatchEvent(new CustomEvent('pwa-update-available'));
+                }
+              };
+            };
+          })
+          .catch(err => console.warn('ServiceWorker gagal/dilewati:', err));
+      });
+    }
+  </script>
+</body>
+</html>
